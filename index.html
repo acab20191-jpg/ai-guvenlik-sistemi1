@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Güvenlik ve Takip Sistemi</title>
+    <!-- PWA Desteği -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#2563eb">
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    
+    <link rel="stylesheet" href="style.css">
+    <!-- MediaPipe Pose CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <header>
+        <h1>AI <span>Güvenlik</span> & Takip Sistemi</h1>
+        <p>Yatalak ve Zihinsel Engelli Bireyler İçin Gerçek Zamanlı İzleme</p>
+    </header>
+
+    <main class="container">
+        <!-- Kamera Görüntüsü -->
+        <section class="camera-section">
+            <div class="camera-label">Canlı Kamera Akışı</div>
+            <div class="video-container">
+                <video id="input_video" class="input_video" autoplay playsinline></video>
+                <canvas id="output_canvas" class="output_canvas" width="640" height="480"></canvas>
+                
+                <!-- Risk Durumu Katmanı -->
+                <div id="status_overlay" class="status-overlay safe">
+                    <span id="status_text">SİSTEM HAZIRLANIYOR...</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Kontrol Paneli -->
+        <section class="controls-section">
+            <div class="status-panel">
+                <h2>Durum Paneli</h2>
+                <div class="status-item">
+                    <span class="label">Kamera:</span>
+                    <span id="camera_status" class="value text-warning">Bekleniyor</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Yapay Zeka:</span>
+                    <span id="ai_status" class="value text-warning">Yükleniyor...</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Hareket:</span>
+                    <span id="movement_status" class="value">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Ses Dinleme:</span>
+                    <span id="voice_status" class="value text-warning">Kapalı</span>
+                </div>
+            </div>
+
+            <div class="action-panel">
+                <button id="btn_start" class="btn btn-primary" disabled>Sistemi Başlat</button>
+                <button id="btn_stop" class="btn btn-secondary" disabled>Durdur</button>
+                <button id="btn_test_alarm" class="btn btn-danger">Alarmı Test Et</button>
+            </div>
+
+            <div class="settings-panel">
+                <h3>Sistem ve Bildirim Ayarları</h3>
+                <p class="settings-help">Telegram bilgilerinizi ve AI alarm sürelerini buradan ayarlayabilirsiniz.</p>
+
+                <!-- Önerilen Hasta Profilleri -->
+                <div style="margin-bottom: 16px; padding: 12px; background: rgba(37,99,235,0.06); border-radius: 10px; border: 1px solid rgba(37,99,235,0.15);">
+                    <strong style="display:block; margin-bottom: 10px; color: #2563eb;">⚡ Hızlı Profil Seçimi:</strong>
+                    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                        <button type="button" onclick="applyPreset('yatalak')"   style="flex:1; min-width:110px; padding:8px 6px; border-radius:8px; border:1px solid #2563eb; background:#fff; color:#2563eb; cursor:pointer; font-size:0.8rem; font-weight:600;">🛏️ Yatalak Hasta</button>
+                        <button type="button" onclick="applyPreset('alzheimer')" style="flex:1; min-width:110px; padding:8px 6px; border-radius:8px; border:1px solid #f59e0b; background:#fff; color:#b45309; cursor:pointer; font-size:0.8rem; font-weight:600;">🧠 Alzheimer/Demans</button>
+                        <button type="button" onclick="applyPreset('felcli')"    style="flex:1; min-width:110px; padding:8px 6px; border-radius:8px; border:1px solid #7c3aed; background:#fff; color:#7c3aed; cursor:pointer; font-size:0.8rem; font-weight:600;">♿ Tam Felçli</button>
+                        <button type="button" onclick="applyPreset('aktif')"     style="flex:1; min-width:110px; padding:8px 6px; border-radius:8px; border:1px solid #16a34a; background:#fff; color:#16a34a; cursor:pointer; font-size:0.8rem; font-weight:600;">🚶 Hareketli Hasta</button>
+                    </div>
+                    <p id="preset_desc" style="margin: 10px 0 0; font-size:0.78rem; color:#555; min-height:18px;"></p>
+                </div>
+
+                <div class="input-group">
+                    <label for="setting_inactivity">Hareketsizlik Süresi (Sn):</label>
+                    <input type="number" id="setting_inactivity" value="10" min="2" max="3600">
+                </div>
+                <div class="input-group">
+                    <label for="setting_sos">S.O.S El Kaldırma Süresi (Sn):</label>
+                    <input type="number" id="setting_sos" value="2" min="1" max="60">
+                </div>
+                
+                <div class="input-group checkbox-group" style="margin-top: 15px; margin-bottom: 15px; background: rgba(0,0,0,0.03); padding: 10px; border-radius: 8px;">
+                    <strong style="display:block; margin-bottom:10px;">Aktif S.O.S Özellikleri:</strong>
+                    <label style="display: flex; align-items: center; cursor: pointer; margin-bottom: 5px;">
+                        <input type="checkbox" id="toggle_hand_sos" checked style="width:auto; margin-right: 10px;"> El Kaldırma Algılaması
+                    </label>
+                    <label style="display: flex; align-items: center; cursor: pointer; margin-bottom: 5px;">
+                        <input type="checkbox" id="toggle_head_sos" checked style="width:auto; margin-right: 10px;"> Kafa Sallama Algılaması
+                    </label>
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="toggle_voice_sos" checked style="width:auto; margin-right: 10px;"> Sesli Komut (İmdat) Dinleme
+                    </label>
+                    <label style="display: flex; align-items: center; cursor: pointer; margin-top: 5px;">
+                        <input type="checkbox" id="toggle_boundary" checked style="width:auto; margin-right: 10px;"> Yataktan Çıkış (Sınır) Algılaması
+                    </label>
+                </div>
+                <div class="input-group">
+                    <label for="setting_boundary_duration">Yataktan Çıkış Alarm Süresi (Sn):</label>
+                    <input type="number" id="setting_boundary_duration" value="3" min="1" max="60">
+                </div>
+                <div class="input-group">
+                    <label for="setting_boundary_h">Sınır - Yatay Kenar Payı (%):</label>
+                    <input type="number" id="setting_boundary_h" value="20" min="0" max="49">
+                </div>
+                <div class="input-group">
+                    <label for="setting_boundary_v">Sınır - Dikey Kenar Payı (%):</label>
+                    <input type="number" id="setting_boundary_v" value="10" min="0" max="49">
+                </div>
+
+                <div class="input-group">
+                    <label for="tg_token">Telegram Bot Token:</label>
+                    <input type="text" id="tg_token" placeholder="Örn: 123456:ABC-DEF...">
+                </div>
+                <div class="input-group">
+                    <label for="tg_chatid">Chat ID:</label>
+                    <input type="text" id="tg_chatid" placeholder="Örn: 987654321">
+                </div>
+                <button id="btn_save_settings" class="btn btn-outline">Ayarları Kaydet</button>
+            </div>
+        </section>
+        
+        <!-- Analiz ve Raporlama (Dashboard) -->
+        <section class="dashboard-section">
+            <div class="dashboard-panel">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px;">
+                    <h2 style="margin: 0; border: none; padding: 0;">Olay Geçmişi (Log)</h2>
+                    <button id="btn_download_report" class="btn btn-outline" style="padding: 5px 15px; font-size: 0.9rem; width: auto;">Rapor İndir</button>
+                </div>
+                <ul id="log_list" class="log-list">
+                    <li>Sistem başlatılmayı bekliyor...</li>
+                </ul>
+            </div>
+            <div class="dashboard-panel">
+                <h2>Canlı Hareketlilik Grafiği</h2>
+                <div class="chart-container">
+                    <canvas id="movement_chart"></canvas>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Scripts -->
+    <script src="js/dashboard.js"></script>
+    <script src="js/alert-system.js"></script>
+    <script src="js/voice-recognition.js"></script>
+    <script src="js/camera.js"></script>
+    <script src="js/ai-analyzer.js"></script>
+    <script src="js/app.js"></script>
+
+    <script>
+    // Hasta Profili Şablonları
+    const PRESETS = {
+        yatalak: {
+            label: '🛏️ Yatalak Hasta: Hasta yatakta sabit, kol/bacak hareketleri kısıtlı. Geniş sınır, uzun süre.',
+            inactivity: 30,   // 30 sn hareketsizlik
+            sos: 2,           // 2 sn el kaldırma
+            handSOS: true,
+            headSOS: false,   // Kafa sallama genellikle gerekmez
+            voiceSOS: false,
+            boundary: true,
+            boundaryDuration: 5,
+            boundaryH: 30,    // Geniş güvenli alan
+            boundaryV: 20
+        },
+        alzheimer: {
+            label: '🧠 Alzheimer/Demans: Hasta yataktan kalkıp kaçabilir. Dar sınır, kısa alarm süresi.',
+            inactivity: 20,
+            sos: 3,
+            handSOS: true,
+            headSOS: false,
+            voiceSOS: true,
+            boundary: true,
+            boundaryDuration: 2,  // Kısa süre - çabuk alarm
+            boundaryH: 15,        // Dar sınır
+            boundaryV: 10
+        },
+        felcli: {
+            label: '♿ Tam Felçli: Hasta sadece kafa/yüz hareket ettirebilir. El ve sınır kapalı.',
+            inactivity: 60,   // Uzun hareketsizlik normal
+            sos: 2,
+            handSOS: false,   // Elleri çalışmıyor
+            headSOS: true,    // Kafa sallama ana SOS
+            voiceSOS: true,
+            boundary: false,  // Yataktan zaten çıkamaz
+            boundaryDuration: 5,
+            boundaryH: 20,
+            boundaryV: 10
+        },
+        aktif: {
+            label: '🚶 Hareketli Hasta: Hasta hareket edebilir ama gözetim gerekli. Orta ayarlar.',
+            inactivity: 15,
+            sos: 2,
+            handSOS: true,
+            headSOS: true,
+            voiceSOS: true,
+            boundary: true,
+            boundaryDuration: 4,
+            boundaryH: 10,   // Neredeyse tüm ekran güvenli alan
+            boundaryV: 5
+        }
+    };
+
+    function applyPreset(key) {
+        const p = PRESETS[key];
+        if (!p) return;
+
+        document.getElementById('setting_inactivity').value      = p.inactivity;
+        document.getElementById('setting_sos').value             = p.sos;
+        document.getElementById('toggle_hand_sos').checked       = p.handSOS;
+        document.getElementById('toggle_head_sos').checked       = p.headSOS;
+        document.getElementById('toggle_voice_sos').checked      = p.voiceSOS;
+        document.getElementById('toggle_boundary').checked       = p.boundary;
+        document.getElementById('setting_boundary_duration').value = p.boundaryDuration;
+        document.getElementById('setting_boundary_h').value      = p.boundaryH;
+        document.getElementById('setting_boundary_v').value      = p.boundaryV;
+        document.getElementById('preset_desc').innerText         = p.label;
+    }
+    </script>
+</body>
+</html>
